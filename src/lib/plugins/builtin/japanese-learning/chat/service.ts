@@ -76,6 +76,15 @@ function formatNetworkError(err: unknown, baseUrl: string): string {
   return JSON.stringify(detail, null, 2)
 }
 
+function formatUsageLimitMessage(detail: Record<string, unknown>): string {
+  const scope = detail.scope === 'global' ? 'Global' : 'Your'
+  const resetAt = typeof detail.resetAt === 'number' ? detail.resetAt : null
+  const resetLabel = resetAt
+    ? new Date(resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : 'tomorrow'
+  return `${scope} daily chat limit reached. Try again after ${resetLabel}.`
+}
+
 function formatHttpError(status: number, statusText: string, body: string, baseUrl: string): string {
   const detail = {
     error: 'http_error',
@@ -295,17 +304,22 @@ export async function streamChat(
       return
     }
     const bodyText = await response.text().catch(() => '')
+    let parsed: Record<string, unknown> | null = null
     try {
-      const parsed = JSON.parse(bodyText) as any
-      if (parsed?.code === 'context_too_long') {
-        throw new ContextTooLongError({
-          tokenBudget: parsed?.tokenBudget,
-          estimatedTokens: parsed?.estimatedTokens,
-          suggestedClientAction: parsed?.suggestedClientAction,
-        })
-      }
+      parsed = bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : null
     } catch {
-      // ignore json parse errors
+      parsed = null
+    }
+    if (parsed?.code === 'context_too_long') {
+      throw new ContextTooLongError({
+        tokenBudget: parsed?.tokenBudget as number | undefined,
+        estimatedTokens: parsed?.estimatedTokens as number | undefined,
+        suggestedClientAction: parsed?.suggestedClientAction as string | undefined,
+      })
+    }
+    if (response.status === 429 && parsed?.code === 'usage_limit_exceeded') {
+      callbacks.onError(formatUsageLimitMessage(parsed))
+      return
     }
     throw new Error(formatHttpError(response.status, response.statusText, bodyText, baseUrl))
   }

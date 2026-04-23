@@ -160,6 +160,33 @@ export default defineSchema({
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
+  // ============================================================================
+  // USAGE LIMITS
+  // ============================================================================
+  //
+  // Counters are bucketed by UTC day. Each row represents one scope + category
+  // + day. User-scope rows are keyed by userId, global-scope rows are keyed by
+  // the string "global". Writes are upserts via `by_scope_key_category_bucket`.
+  //
+  // `user_usage_tier` records the per-user entitlement tier (free / donor /
+  // admin) used to look up effective limits. Users without a row default to
+  // the free tier.
+  //
+  api_usage: defineTable({
+    scope: v.union(v.literal("user"), v.literal("global")),
+    key: v.string(),
+    category: v.union(v.literal("chat"), v.literal("tts"), v.literal("llm")),
+    bucket: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_scope_key_category_bucket", ["scope", "key", "category", "bucket"]),
+
+  user_usage_tier: defineTable({
+    userId: v.string(),
+    tier: v.union(v.literal("free"), v.literal("donor"), v.literal("admin")),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
   // manga_progress: materialized "last read" summary for fast library UI
   manga_progress: defineTable({
     userId: v.string(),
