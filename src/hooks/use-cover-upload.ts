@@ -3,10 +3,11 @@
  *
  * Features:
  * - Client-side image resizing before upload
- * - Uses @convex-dev/r2 component for uploads
+ * - Uses @convex-dev/r2 mutations for presigned PUT + metadata sync
+ * - Server-side validation after sync (WebP + size) before returning the key
  */
 
-import { useUploadFile } from "@convex-dev/r2/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 const MAX_COVER_WIDTH = 400;
@@ -85,7 +86,9 @@ async function resizeImage(file: File): Promise<File> {
  * @returns Object with upload function and upload state
  */
 export function useCoverUpload() {
-  const uploadFile = useUploadFile(api.r2);
+  const generateUploadUrl = useMutation(api.r2.generateUploadUrl);
+  const syncMetadata = useMutation(api.r2.syncMetadata);
+  const completeCoverUpload = useAction(api.r2_upload_guard.completeCoverUpload);
 
   /**
    * Upload a cover image after resizing.
@@ -93,12 +96,24 @@ export function useCoverUpload() {
    * @returns The R2 object key
    */
   async function uploadCover(file: File): Promise<string> {
-    // Resize before upload
     const resizedFile = await resizeImage(file);
 
-    // Upload using convex-dev/r2 hook
-    const key = await uploadFile(resizedFile);
+    const { url, key } = await generateUploadUrl();
+    try {
+      const result = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": resizedFile.type },
+        body: resizedFile,
+      });
+      if (!result.ok) {
+        throw new Error(`Failed to upload image: ${result.statusText}`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to upload image: ${String(error)}`);
+    }
 
+    await syncMetadata({ key });
+    await completeCoverUpload({ key });
     return key;
   }
 

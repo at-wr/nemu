@@ -160,6 +160,23 @@ export default defineSchema({
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
+  // Per-user R2 cover upload rate limiting (rolling window)
+  r2_upload_counters: defineTable({
+    userId: v.string(),
+    windowStartMs: v.number(),
+    stepsUsed: v.number(),
+  }).index("by_user", ["userId"]),
+
+  // Keys awaiting post-upload validation (bound to user in onUpload)
+  r2_pending_cover_keys: defineTable({
+    userId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_user", ["userId"])
+    .index("by_user_key", ["userId", "key"]),
+
   // manga_progress: materialized "last read" summary for fast library UI
   manga_progress: defineTable({
     userId: v.string(),
