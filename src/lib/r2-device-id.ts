@@ -1,4 +1,5 @@
-const STORAGE_KEY = "nemu:r2-guest-device-id";
+const LS_KEY = "nemu:r2-guest-device-id";
+const SS_KEY = "nemu:r2-guest-device-id-session";
 
 function randomId(): string {
   try {
@@ -10,19 +11,29 @@ function randomId(): string {
 
 /**
  * Stable anonymous id for R2 guest quotas (not auth; local only).
+ * Prefers localStorage, then sessionStorage if storage is restricted.
  */
 export function getOrCreateR2GuestDeviceId(): string {
   if (typeof window === "undefined") {
     return "";
   }
   try {
-    let id = localStorage.getItem(STORAGE_KEY)?.trim();
+    let id = localStorage.getItem(LS_KEY)?.trim();
     if (!id) {
       id = randomId();
-      localStorage.setItem(STORAGE_KEY, id);
+      localStorage.setItem(LS_KEY, id);
     }
     return id;
   } catch {
-    return "";
+    try {
+      let id = sessionStorage.getItem(SS_KEY)?.trim();
+      if (!id) {
+        id = randomId();
+        sessionStorage.setItem(SS_KEY, id);
+      }
+      return id;
+    } catch {
+      return "";
+    }
   }
 }
