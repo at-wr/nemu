@@ -1,72 +1,87 @@
 /**
- * Generic CORS proxy via Convex HTTP actions.
- * Use this when Cloudflare Workers proxy is blocked (e.g., MangaUpdates).
+ * CORS proxy via Convex HTTP actions (e.g. MangaUpdates blocks Cloudflare).
+ * Locked down: host allowlist, SSRF blocks, no arbitrary x-proxy-* injection,
+ * browser CORS matches SITE_URL / DEV_URL only.
  */
 
 import { httpAction } from "./_generated/server";
+import { corsHeadersForBrowserRequest } from "./cors_utils";
+import { isHostAllowedByPolicy } from "./proxy_utils";
+
+const SAFE_REQUEST_HEADER_ALLOWLIST = new Set([
+  "content-type",
+  "accept",
+  "accept-language",
+  "accept-encoding",
+]);
+
+function buildUpstreamHeaders(request: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  let customUa: string | null = null;
+  request.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (lower === "x-proxy-user-agent") {
+      customUa = value;
+      return;
+    }
+    if (SAFE_REQUEST_HEADER_ALLOWLIST.has(lower)) {
+      headers[key] = value;
+    }
+  });
+  const ua = customUa || headers["User-Agent"] || headers["user-agent"];
+  if (ua) {
+    headers["User-Agent"] = ua;
+    delete headers["user-agent"];
+  } else {
+    headers["User-Agent"] = "Mozilla/5.0 (compatible; Nemu/1.0)";
+  }
+  return headers;
+}
 
 export const proxy = httpAction(async (_, request) => {
+  const cors = corsHeadersForBrowserRequest(request);
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: cors });
+  }
+
   const url = new URL(request.url);
   const targetUrl = url.searchParams.get("url");
 
   if (!targetUrl) {
-    return new Response("Missing 'url' parameter", { status: 400 });
+    return new Response("Missing 'url' parameter", { status: 400, headers: cors });
   }
 
-  // Validate URL
   let target: URL;
   try {
     target = new URL(targetUrl);
     if (!["http:", "https:"].includes(target.protocol)) {
-      throw new Error("Invalid protocol");
+      return new Response("Invalid protocol", { status: 400, headers: cors });
     }
   } catch {
-    return new Response("Invalid URL", { status: 400 });
+    return new Response("Invalid URL", { status: 400, headers: cors });
   }
 
-  // Build headers for the proxied request
-  const headers: Record<string, string> = {};
-  
-  // Forward specific headers, convert x-proxy-* to real headers
-  request.headers.forEach((value, key) => {
-    const lowerKey = key.toLowerCase();
-    
-    // Convert x-proxy-* headers
-    if (lowerKey.startsWith("x-proxy-")) {
-      headers[key.slice(8)] = value;
-    }
-    // Forward content-type and accept
-    else if (lowerKey === "content-type" || lowerKey === "accept") {
-      headers[key] = value;
-    }
-  });
-
-  // Default headers if not provided
-  if (!headers["User-Agent"] && !headers["user-agent"]) {
-    headers["User-Agent"] = "Mozilla/5.0 (compatible; Nemu/1.0)";
+  const hostname = target.hostname.toLowerCase();
+  if (!isHostAllowedByPolicy(hostname)) {
+    return new Response("Host not allowed", { status: 403, headers: cors });
   }
+
+  const headers = buildUpstreamHeaders(request);
 
   try {
-    // Get request body for POST/PUT/PATCH
     let body: ArrayBuffer | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
       body = await request.arrayBuffer();
     }
 
-    const response = await fetch(targetUrl, {
+    const response = await fetch(target.toString(), {
       method: request.method,
       headers,
       body,
     });
 
-    // Build response headers
-    const responseHeaders = new Headers({
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
-      "Access-Control-Allow-Headers": "*",
-    });
-
-    // Forward content-type from response
+    const responseHeaders = new Headers(cors);
     const contentType = response.headers.get("content-type");
     if (contentType) {
       responseHeaders.set("Content-Type", contentType);
@@ -79,20 +94,13 @@ export const proxy = httpAction(async (_, request) => {
     });
   } catch (error) {
     console.error("[ConvexProxy] Error:", error);
-    return new Response(`Proxy error: ${error}`, { status: 500 });
+    return new Response("Proxy error", { status: 502, headers: cors });
   }
 });
 
-// Handle CORS preflight
-export const proxyOptions = httpAction(async () => {
+export const proxyOptions = httpAction(async (_, request) => {
   return new Response(null, {
     status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
-      "Access-Control-Allow-Headers": "*",
-      "Access-Control-Max-Age": "86400",
-    },
+    headers: corsHeadersForBrowserRequest(request),
   });
 });
-

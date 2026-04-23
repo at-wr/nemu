@@ -56,6 +56,12 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
+  /** Global Convex-side throttle for anonymous R2 cover uploads (per UTC day). */
+  r2_anonymous_daily_usage: defineTable({
+    dayKey: v.string(),
+    checks: v.number(),
+  }).index("by_day", ["dayKey"]),
+
   settings: defineTable({
     userId: v.string(),
     installedSources: v.array(
