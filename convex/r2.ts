@@ -1,63 +1,165 @@
 /**
- * R2 Storage
+ * R2 Storage — cover uploads with guest-friendly quotas.
  *
- * Uses @convex-dev/r2 component for Cloudflare R2 file storage.
+ * - Signed-in users: unlimited (subject to R2/Convex).
+ * - Anonymous: per-device daily cap on **completed** uploads only; failed PUTs do not count.
+ * - `PROXY_ALLOWED_HOSTS` (optional): see proxy_utils for proxy behavior.
  */
 
 import { R2 } from "@convex-dev/r2";
-import type { MutationCtx } from "./_generated/server";
+import { v } from "convex/values";
 import { components } from "./_generated/api";
+import { mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 
 export const r2 = new R2(components.r2);
+
+const MAX_PENDING_KEYS = 5;
+const PENDING_TTL_MS = 15 * 60 * 1000;
 
 function utcDayKey(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-/**
- * Global daily throttle for anonymous cover uploads (each generateUploadUrl + syncMetadata uses two checks).
- * Set R2_ANONYMOUS_GLOBAL_DAILY_LIMIT=0 to require sign-in for uploads only.
- */
-async function enforceAnonymousUploadLimit(ctx: MutationCtx): Promise<void> {
-  const raw = process.env.R2_ANONYMOUS_GLOBAL_DAILY_LIMIT ?? "200";
-  const max = Math.max(0, parseInt(raw, 10));
-  if (max === 0) {
-    throw new Error("Anonymous uploads are disabled; sign in to upload covers");
-  }
-  const dayKey = utcDayKey(Date.now());
-  const existing = await ctx.db
-    .query("r2_anonymous_daily_usage")
-    .withIndex("by_day", (q) => q.eq("dayKey", dayKey))
-    .first();
-
-  const count = existing?.checks ?? 0;
-  if (count >= max) {
-    throw new Error(
-      "Anonymous upload limit reached for today; sign in to continue uploading covers"
-    );
-  }
-
-  if (existing) {
-    await ctx.db.patch(existing._id, { checks: count + 1 });
-  } else {
-    await ctx.db.insert("r2_anonymous_daily_usage", { dayKey, checks: 1 });
-  }
+function parseDeviceDailyLimit(): number {
+  const raw = process.env.R2_ANONYMOUS_DEVICE_DAILY_LIMIT ?? "50";
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? Math.max(0, n) : 50;
 }
 
-// Client API for uploads - exposed to frontend
-export const { generateUploadUrl, syncMetadata } = r2.clientApi({
-  checkUpload: async (ctx) => {
+function prunePendingKeys(
+  pending: string[] | undefined,
+  pendingAt: number | undefined,
+  now: number
+): string[] {
+  const keys = pending ?? [];
+  if (keys.length === 0) return [];
+  if (pendingAt != null && now - pendingAt > PENDING_TTL_MS) {
+    return [];
+  }
+  return keys;
+}
+
+async function getOrCreateDeviceRow(
+  ctx: MutationCtx,
+  deviceId: string,
+  dayKey: string,
+  now: number
+) {
+  let row = await ctx.db
+    .query("r2_anonymous_device_usage")
+    .withIndex("by_device_day", (q) => q.eq("deviceId", deviceId).eq("dayKey", dayKey))
+    .first();
+
+  if (!row) {
+    const id = await ctx.db.insert("r2_anonymous_device_usage", {
+      deviceId,
+      dayKey,
+      uploads: 0,
+      pendingKeys: [],
+      pendingAt: now,
+    });
+    row = (await ctx.db.get(id))!;
+  }
+  return row;
+}
+
+function scheduleR2Sync(ctx: MutationCtx, key: string) {
+  return ctx.scheduler.runAfter(0, components.r2.lib.syncMetadata, {
+    key,
+    ...r2.config,
+  });
+}
+
+/** Issued signed PUT URL; anonymous callers must pass the same deviceId on sync. */
+export const generateCoverUploadUrl = mutation({
+  args: { deviceId: v.optional(v.string()) },
+  returns: v.object({ key: v.string(), url: v.string() }),
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity) {
-      return;
+      return await r2.generateUploadUrl();
     }
-    // r2.clientApi invokes checkUpload inside a mutation; cast for db writes.
-    await enforceAnonymousUploadLimit(ctx as unknown as MutationCtx);
-  },
-  onUpload: async (_ctx, _bucket, key) => {
-    console.log("File uploaded:", key);
+
+    const deviceId = (args.deviceId ?? "").trim();
+    if (!deviceId || deviceId.length > 128) {
+      throw new Error("Missing or invalid device id");
+    }
+
+    const max = parseDeviceDailyLimit();
+    if (max === 0) {
+      throw new Error("Anonymous uploads are disabled; sign in to upload covers");
+    }
+
+    const now = Date.now();
+    const dayKey = utcDayKey(now);
+    const row = await getOrCreateDeviceRow(ctx, deviceId, dayKey, now);
+    let pending = prunePendingKeys(row.pendingKeys, row.pendingAt, now);
+
+    if (pending.length >= MAX_PENDING_KEYS) {
+      throw new Error("Too many cover uploads in progress; wait or sign in.");
+    }
+    if (row.uploads >= max) {
+      throw new Error(
+        "Daily guest cover upload limit reached; sign in for unlimited uploads"
+      );
+    }
+
+    const { key, url } = await r2.generateUploadUrl();
+    pending = [...pending, key];
+    await ctx.db.patch(row._id, { pendingKeys: pending, pendingAt: now });
+    return { key, url };
   },
 });
 
-// Re-export for use in other Convex functions
+/** Call after successful PUT to R2. Anonymous callers must pass deviceId. */
+export const syncCoverMetadata = mutation({
+  args: { key: v.string(), deviceId: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      await scheduleR2Sync(ctx, args.key);
+      console.log("File uploaded:", args.key);
+      return null;
+    }
+
+    const deviceId = (args.deviceId ?? "").trim();
+    if (!deviceId || deviceId.length > 128) {
+      throw new Error("Missing or invalid device id");
+    }
+
+    const max = parseDeviceDailyLimit();
+    if (max === 0) {
+      throw new Error("Anonymous uploads are disabled; sign in to upload covers");
+    }
+
+    const now = Date.now();
+    const dayKey = utcDayKey(now);
+    const row = await getOrCreateDeviceRow(ctx, deviceId, dayKey, now);
+    let pending = prunePendingKeys(row.pendingKeys, row.pendingAt, now);
+    const idx = pending.indexOf(args.key);
+    if (idx === -1) {
+      throw new Error("Invalid or expired cover upload session; try again.");
+    }
+    if (row.uploads >= max) {
+      throw new Error(
+        "Daily guest cover upload limit reached; sign in for unlimited uploads"
+      );
+    }
+
+    pending = pending.filter((k) => k !== args.key);
+    await ctx.db.patch(row._id, {
+      pendingKeys: pending,
+      pendingAt: pending.length > 0 ? row.pendingAt : undefined,
+      uploads: row.uploads + 1,
+    });
+
+    await scheduleR2Sync(ctx, args.key);
+    console.log("File uploaded:", args.key);
+    return null;
+  },
+});
+
+// Re-export for server-side use
 export { r2 as r2Client };

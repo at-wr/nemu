@@ -3,11 +3,13 @@
  *
  * Features:
  * - Client-side image resizing before upload
- * - Uses @convex-dev/r2 component for uploads
+ * - Uses Convex mutations (guest: per-device daily quota on completed uploads only)
  */
 
-import { useUploadFile } from "@convex-dev/r2/react";
+import { useMutation } from "convex/react";
+import { useCallback } from "react";
 import { api } from "../../convex/_generated/api";
+import { getOrCreateR2GuestDeviceId } from "@/lib/r2-device-id";
 
 const MAX_COVER_WIDTH = 400;
 const MAX_COVER_HEIGHT = 600;
@@ -85,22 +87,36 @@ async function resizeImage(file: File): Promise<File> {
  * @returns Object with upload function and upload state
  */
 export function useCoverUpload() {
-  const uploadFile = useUploadFile(api.r2);
+  const generateCoverUploadUrl = useMutation(api.r2.generateCoverUploadUrl);
+  const syncCoverMetadata = useMutation(api.r2.syncCoverMetadata);
 
-  /**
-   * Upload a cover image after resizing.
-   * @param file The image file to upload
-   * @returns The R2 object key
-   */
-  async function uploadCover(file: File): Promise<string> {
-    // Resize before upload
-    const resizedFile = await resizeImage(file);
+  const uploadCover = useCallback(
+    async (file: File): Promise<string> => {
+      const resizedFile = await resizeImage(file);
+      const deviceId = getOrCreateR2GuestDeviceId();
 
-    // Upload using convex-dev/r2 hook
-    const key = await uploadFile(resizedFile);
+      const { url, key } = await generateCoverUploadUrl(
+        deviceId ? { deviceId } : {}
+      );
 
-    return key;
-  }
+      try {
+        const result = await fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": resizedFile.type },
+          body: resizedFile,
+        });
+        if (!result.ok) {
+          throw new Error(`Failed to upload image: ${result.statusText}`);
+        }
+      } catch (error) {
+        throw new Error(`Failed to upload image: ${error}`);
+      }
+
+      await syncCoverMetadata(deviceId ? { key, deviceId } : { key });
+      return key;
+    },
+    [generateCoverUploadUrl, syncCoverMetadata]
+  );
 
   return { uploadCover };
 }

@@ -56,11 +56,19 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
-  /** Global Convex-side throttle for anonymous R2 cover uploads (per UTC day). */
-  r2_anonymous_daily_usage: defineTable({
+  /**
+   * Per-guest-device daily R2 cover upload counts (UTC day).
+   * Pending keys track in-flight signed PUT URLs so failed uploads do not consume quota.
+   */
+  r2_anonymous_device_usage: defineTable({
+    deviceId: v.string(),
     dayKey: v.string(),
-    checks: v.number(),
-  }).index("by_day", ["dayKey"]),
+    uploads: v.number(),
+    pendingKeys: v.optional(v.array(v.string())),
+    pendingAt: v.optional(v.number()),
+  })
+    .index("by_device_day", ["deviceId", "dayKey"])
+    .index("by_day", ["dayKey"]),
 
   settings: defineTable({
     userId: v.string(),

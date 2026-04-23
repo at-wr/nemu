@@ -1,14 +1,18 @@
 /**
- * SSRF mitigation and host allowlisting for the Convex HTTP proxy.
+ * SSRF mitigation and optional host allowlisting for the Convex HTTP proxy.
+ *
+ * - If PROXY_ALLOWED_HOSTS is **unset or empty**: any public hostname is allowed
+ *   (still subject to `isBlockedSsrIpHostname` and `.internal` blocks). Use this
+ *   when community sources add new API hosts you do not want to chase in config.
+ * - If PROXY_ALLOWED_HOSTS is set: only those hosts (suffix match) are allowed
+ *   (stricter ops mode / incident response).
  */
-
-const DEFAULT_ALLOWED_HOSTS = ["api.mangaupdates.com"];
-
-function parseAllowedHosts(): string[] {
+function parseAllowedHosts(): string[] | null {
   const raw = process.env.PROXY_ALLOWED_HOSTS?.split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return raw?.length ? raw : DEFAULT_ALLOWED_HOSTS;
+  if (!raw?.length) return null;
+  return raw;
 }
 
 function isIpV4(hostname: string): boolean {
@@ -61,9 +65,12 @@ export function isHostAllowedByPolicy(hostname: string): boolean {
   if (isBlockedSsrIpHostname(host)) return false;
 
   const allowed = parseAllowedHosts();
+  if (allowed === null) {
+    return true;
+  }
   return allowed.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
-export function getProxyAllowedHostsForDiagnostics(): string[] {
+export function getProxyAllowedHostsForDiagnostics(): string[] | null {
   return parseAllowedHosts();
 }
