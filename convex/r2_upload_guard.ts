@@ -1,4 +1,5 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { R2_COVER_UPLOAD_RATE_LIMIT } from "./r2_upload_constants";
 import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { requireAuth } from "./_lib";
@@ -54,9 +55,7 @@ export const consumeR2UploadStep = internalMutation({
     }
 
     if (row.stepsUsed >= MAX_UPLOAD_STEPS_PER_WINDOW) {
-      throw new Error(
-        "Cover upload limit reached. Please try again in up to an hour."
-      );
+      throw new ConvexError(R2_COVER_UPLOAD_RATE_LIMIT);
     }
 
     await ctx.db.patch(row._id, { stepsUsed: row.stepsUsed + 1 });
