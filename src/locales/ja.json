@@ -140,6 +140,7 @@
     "addArtist": "作画を追加...",
     "viewOriginal": "元の表紙を見る",
     "saveFailed": "保存に失敗しました",
+    "coverUploadRateLimited": "カバー画像のアップロード上限に達しました。最大1時間後に再度お試しください。",
     "fromSource": "ソースから",
     "fetchFromSource": "ソースからメタデータを取得",
     "fetchedFromSource": "ソースからメタデータを取得しました",

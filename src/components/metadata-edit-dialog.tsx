@@ -43,6 +43,7 @@ import { metadataFromSource } from "@/lib/metadata";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
 import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
+import { isR2CoverUploadRateLimitedError } from "@/lib/r2-upload-errors";
 import { toast } from "sonner";
 
 interface MetadataEditDialogProps {
@@ -379,8 +380,8 @@ export function MetadataEditDialog({
           coverUrl = getR2PublicUrl(key);
         } catch (e) {
           console.error("[MetadataEdit] Failed to upload external cover:", e);
-          // Last resort: use external URL directly
-          coverUrl = form.coverUrl;
+          if (isR2CoverUploadRateLimitedError(e)) throw e;
+          throw new Error("Failed to upload external cover");
         }
       } else if (!isOverridden.cover && currentOverrides?.coverUrl) {
         // User cleared the override - pass null to remove it
@@ -391,11 +392,15 @@ export function MetadataEditDialog({
       onOpenChange(false);
     } catch (e) {
       console.error("[MetadataEdit] Save error:", e);
-      toast.error(t("metadata.saveFailed"));
+      if (isR2CoverUploadRateLimitedError(e)) {
+        toast.error(t("metadata.coverUploadRateLimited"));
+      } else {
+        toast.error(t("metadata.saveFailed"));
+      }
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides, t]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",

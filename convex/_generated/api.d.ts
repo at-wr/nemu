@@ -19,6 +19,8 @@ import type * as nemu_chat from "../nemu_chat.js";
 import type * as prompts_nemu_chat from "../prompts/nemu_chat.js";
 import type * as proxy from "../proxy.js";
 import type * as r2 from "../r2.js";
+import type * as r2_instance from "../r2_instance.js";
+import type * as r2_upload_guard from "../r2_upload_guard.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 import type * as tts from "../tts.js";
@@ -41,6 +43,8 @@ declare const fullApi: ApiFromModules<{
   "prompts/nemu_chat": typeof prompts_nemu_chat;
   proxy: typeof proxy;
   r2: typeof r2;
+  r2_instance: typeof r2_instance;
+  r2_upload_guard: typeof r2_upload_guard;
   settings: typeof settings;
   sync: typeof sync;
   tts: typeof tts;

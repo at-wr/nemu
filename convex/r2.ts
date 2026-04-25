@@ -2,23 +2,41 @@
  * R2 Storage
  *
  * Uses @convex-dev/r2 component for Cloudflare R2 file storage.
+ * Uploads require auth, per-user rate limits, and server-side WebP/size checks
+ * (see r2_upload_guard.completeCoverUpload, awaited from the client after sync).
  */
 
-import { R2 } from "@convex-dev/r2";
-import { components } from "./_generated/api";
+import { internal } from "./_generated/api";
+import { mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import { requireAuth } from "./_lib";
+import { r2 } from "./r2_instance";
+import { v } from "convex/values";
 
-export const r2 = new R2(components.r2);
-
-// Client API for uploads - exposed to frontend
-export const { generateUploadUrl, syncMetadata } = r2.clientApi({
-  checkUpload: async (_ctx, _bucket) => {
-    // TODO: Add auth check if needed
-    // const user = await userFromAuth(ctx);
-    // if (!user) throw new Error("Unauthorized");
+export const generateUploadUrl = mutation({
+  args: {},
+  returns: v.object({
+    key: v.string(),
+    url: v.string(),
+  }),
+  handler: async (ctx) => {
+    await requireAuth(ctx);
+    await ctx.runMutation(internal.r2_upload_guard.consumeR2UploadStep, {});
+    const upload = await r2.generateUploadUrl();
+    await ctx.runMutation(internal.r2_upload_guard.registerPendingCoverKey, {
+      key: upload.key,
+    });
+    return upload;
   },
-  onUpload: async (_ctx, _bucket, key) => {
-    // Called after successful upload and metadata sync
-    console.log("File uploaded:", key);
+});
+
+export const { syncMetadata } = r2.clientApi({
+  checkUpload: async (ctx, bucket) => {
+    void bucket;
+    // @convex-dev/r2 types this as a generic query ctx; handlers run as mutations.
+    const mctx = ctx as unknown as MutationCtx;
+    await requireAuth(mctx);
+    await mctx.runMutation(internal.r2_upload_guard.consumeR2UploadStep, {});
   },
 });
 
