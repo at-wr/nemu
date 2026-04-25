@@ -379,8 +379,7 @@ export function MetadataEditDialog({
           coverUrl = getR2PublicUrl(key);
         } catch (e) {
           console.error("[MetadataEdit] Failed to upload external cover:", e);
-          // Last resort: use external URL directly
-          coverUrl = form.coverUrl;
+          throw new Error("Failed to upload external cover");
         }
       } else if (!isOverridden.cover && currentOverrides?.coverUrl) {
         // User cleared the override - pass null to remove it
@@ -395,7 +394,7 @@ export function MetadataEditDialog({
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides, t]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",

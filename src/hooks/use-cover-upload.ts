@@ -13,6 +13,9 @@ import { api } from "../../convex/_generated/api";
 const MAX_COVER_WIDTH = 400;
 const MAX_COVER_HEIGHT = 600;
 const WEBP_QUALITY = 0.85;
+const R2_PUBLIC_URL = (
+  import.meta.env.VITE_R2_PUBLIC_URL || "https://r2.nemu.pm"
+).replace(/\/+$/, "");
 
 /**
  * Resize an image file to fit within max dimensions.
@@ -124,6 +127,5 @@ export function useCoverUpload() {
  * Get the public URL for an R2 object.
  */
 export function getR2PublicUrl(key: string): string {
-  // R2_PUBLIC_URL is set to https://r2.nemu.pm
-  return `https://r2.nemu.pm/${key}`;
+  return `${R2_PUBLIC_URL}/${key}`;
 }

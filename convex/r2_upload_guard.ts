@@ -66,7 +66,9 @@ export const consumeR2UploadStep = internalMutation({
 const PENDING_KEY_TTL_MS = 2 * 60 * 60 * 1000;
 
 /**
- * Binds an upload key to the authenticated user until completeCoverUpload runs.
+ * Binds a freshly generated upload key to the authenticated user until
+ * completeCoverUpload runs. This must happen before the key leaves the server;
+ * syncMetadata accepts arbitrary keys and cannot establish ownership.
  */
 export const registerPendingCoverKey = internalMutation({
   args: { key: v.string() },

@@ -7,22 +7,36 @@
  */
 
 import { internal } from "./_generated/api";
+import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { requireAuth } from "./_lib";
 import { r2 } from "./r2_instance";
+import { v } from "convex/values";
 
-export const { generateUploadUrl, syncMetadata } = r2.clientApi({
+export const generateUploadUrl = mutation({
+  args: {},
+  returns: v.object({
+    key: v.string(),
+    url: v.string(),
+  }),
+  handler: async (ctx) => {
+    await requireAuth(ctx);
+    await ctx.runMutation(internal.r2_upload_guard.consumeR2UploadStep, {});
+    const upload = await r2.generateUploadUrl();
+    await ctx.runMutation(internal.r2_upload_guard.registerPendingCoverKey, {
+      key: upload.key,
+    });
+    return upload;
+  },
+});
+
+export const { syncMetadata } = r2.clientApi({
   checkUpload: async (ctx, bucket) => {
     void bucket;
     // @convex-dev/r2 types this as a generic query ctx; handlers run as mutations.
     const mctx = ctx as unknown as MutationCtx;
     await requireAuth(mctx);
     await mctx.runMutation(internal.r2_upload_guard.consumeR2UploadStep, {});
-  },
-  onUpload: async (ctx, _bucket, key) => {
-    await ctx.runMutation(internal.r2_upload_guard.registerPendingCoverKey, {
-      key,
-    });
   },
 });
 
