@@ -145,6 +145,7 @@
     "addArtist": "Add artist...",
     "viewOriginal": "View Original",
     "saveFailed": "Failed to save changes",
+    "coverUploadRateLimited": "Cover upload limit reached. Try again in up to an hour.",
     "fromSource": "From Source",
     "fetchFromSource": "Fetch metadata from source",
     "fetchedFromSource": "Metadata fetched from source",
