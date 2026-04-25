@@ -140,7 +140,7 @@
     "addArtist": "添加作画...",
     "viewOriginal": "查看原图",
     "saveFailed": "保存失败",
-    "coverUploadRateLimited": "封面上传次数已达上限，请最多一小时后再试。",
+    "coverUploadRateLimited": "封面上传次数已达上限，请在一小时后重试",
     "fromSource": "从源获取",
     "fetchFromSource": "从源获取元数据",
     "fetchedFromSource": "已从源获取元数据",
