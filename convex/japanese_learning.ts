@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { action } from "./_generated/server"
 import { createGateway, generateObject } from "ai"
 import { z } from "zod"
+import { consumeActionUsage } from "./usage_error"
 
 function getGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY
@@ -36,10 +37,11 @@ export const normalize = action({
   args: {
     text: v.string(),
   },
-  handler: async (_, { text }) => {
-    const gateway = getGateway()
+  handler: async (ctx, { text }) => {
     const clean = (text ?? "").trim()
     if (!clean) return { normalized: "", proper_nouns: [] as string[] }
+    await consumeActionUsage(ctx, "llm")
+    const gateway = getGateway()
 
     const run = async () => {
       console.log("[japanese-learning.normalize] start", { len: clean.length })

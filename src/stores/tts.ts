@@ -11,6 +11,17 @@ class TtsAuthError extends Error {
   }
 }
 
+class TtsUsageLimitError extends Error {
+  scope: 'user' | 'global'
+  resetAt: number | null
+  constructor(scope: 'user' | 'global', resetAt: number | null) {
+    super('usage_limit_exceeded')
+    this.name = 'TtsUsageLimitError'
+    this.scope = scope
+    this.resetAt = resetAt
+  }
+}
+
 type TtsSource = 'sentence' | 'transcript' | 'voice'
 
 interface TtsRequestOptions {
@@ -584,10 +595,31 @@ async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal
       useAuthGate.getState().promptSignIn()
       throw new TtsAuthError(detail || 'Authentication required')
     }
+    if (response.status === 429) {
+      let parsed: Record<string, unknown> | null = null
+      try {
+        parsed = detail ? (JSON.parse(detail) as Record<string, unknown>) : null
+      } catch {
+        parsed = null
+      }
+      if (parsed?.code === 'usage_limit_exceeded') {
+        const scope = parsed.scope === 'global' ? 'global' : 'user'
+        const resetAt = typeof parsed.resetAt === 'number' ? parsed.resetAt : null
+        throw new TtsUsageLimitError(scope, resetAt)
+      }
+    }
     console.error('[TTS] Request failed', { status: response.status, detail })
     throw new Error(detail || `TTS request failed (${response.status})`)
   }
   return response
+}
+
+function formatTtsLimitMessage(err: TtsUsageLimitError): string {
+  const resetLabel = err.resetAt
+    ? new Date(err.resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : 'tomorrow'
+  const prefix = err.scope === 'global' ? 'Global' : 'Your'
+  return `${prefix} daily TTS limit reached. Try again after ${resetLabel}.`
 }
 
 export function createTtsId(prefix: string, text: string): string {
@@ -711,7 +743,11 @@ export const useTtsStore = create<TTSState>((set, get) => {
         set((state) => ({ audioCache: new Map(state.audioCache).set(task.id, blob) }))
       }
     } catch (err) {
-      if (!isAbortError(err)) {
+      if (err instanceof TtsUsageLimitError) {
+        // Don't keep hammering the server once we're rate-limited.
+        prefetchQueue.splice(0, prefetchQueue.length)
+        toast.error(formatTtsLimitMessage(err))
+      } else if (!isAbortError(err)) {
         console.warn('[TTS] Prefetch failed', err)
       }
     } finally {
@@ -1302,6 +1338,11 @@ export const useTtsStore = create<TTSState>((set, get) => {
       } catch (err) {
         if (requestId !== activeRequestId || isAbortError(err)) return
         if (err instanceof TtsAuthError) {
+          stopImmediate()
+          return
+        }
+        if (err instanceof TtsUsageLimitError) {
+          toast.error(formatTtsLimitMessage(err))
           stopImmediate()
           return
         }

@@ -22,6 +22,9 @@ import type * as r2 from "../r2.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 import type * as tts from "../tts.js";
+import type * as usage from "../usage.js";
+import type * as usage_error from "../usage_error.js";
+import type * as usage_limits from "../usage_limits.js";
 
 import type {
   ApiFromModules,
@@ -44,6 +47,9 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   sync: typeof sync;
   tts: typeof tts;
+  usage: typeof usage;
+  usage_error: typeof usage_error;
+  usage_limits: typeof usage_limits;
 }>;
 
 /**

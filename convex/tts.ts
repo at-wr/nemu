@@ -2,6 +2,8 @@ import { httpAction } from "./_generated/server"
 import { getHttpSession } from "./auth"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { generateText } from "ai"
+import { internal } from "./_generated/api"
+import type { UsageConsumeResult } from "./usage"
 
 const MODEL = "gemini-2.5-flash-lite"
 const ELEVENLABS_MODEL_ID = "eleven_v3"
@@ -212,6 +214,27 @@ export const tts = httpAction(async (ctx, request) => {
 
   if (body?.source === "transcript" && cleanText.length > TRANSCRIPT_LIMIT) {
     return new Response("Transcript too long for TTS", { status: 413, headers: corsHeaders })
+  }
+
+  // Usage limits: consume AFTER input validation so malformed requests don't
+  // burn quota, but BEFORE the paid ElevenLabs/Gemini calls.
+  const usage: UsageConsumeResult = await ctx.runMutation(internal.usage.consume, {
+    userId: session.user.id,
+    category: "tts",
+  })
+  if (!usage.ok) {
+    return new Response(
+      JSON.stringify({
+        code: "usage_limit_exceeded",
+        category: "tts",
+        scope: usage.scope,
+        used: usage.used,
+        limit: usage.limit,
+        tier: usage.tier,
+        resetAt: usage.resetAt,
+      }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    )
   }
 
   const apiKey = process.env.ELEVENLABS_API_KEY

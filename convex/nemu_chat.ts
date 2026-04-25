@@ -4,6 +4,8 @@ import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { buildPromptConfig } from "./prompts/nemu_chat"
 import { getHttpSession } from "./auth"
+import { internal } from "./_generated/api"
+import type { UsageConsumeResult } from "./usage"
 
 const MODEL = "anthropic/claude-sonnet-4-5"
 const MAX_INPUT_TOKENS_BUDGET = 80_000
@@ -419,6 +421,27 @@ export const chat = httpAction(async (ctx, request) => {
           suggestedClientAction: "drop_oldest_half",
         }),
         { status: 413, headers: jsonHeaders }
+      )
+    }
+
+    // Usage limits: consume only once we're about to stream to Anthropic, so
+    // malformed requests and context_too_long retries don't burn quota.
+    const usage: UsageConsumeResult = await ctx.runMutation(internal.usage.consume, {
+      userId: session.user.id,
+      category: "chat",
+    })
+    if (!usage.ok) {
+      return new Response(
+        JSON.stringify({
+          code: "usage_limit_exceeded",
+          category: "chat",
+          scope: usage.scope,
+          used: usage.used,
+          limit: usage.limit,
+          tier: usage.tier,
+          resetAt: usage.resetAt,
+        }),
+        { status: 429, headers: jsonHeaders }
       )
     }
 

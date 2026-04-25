@@ -16,6 +16,7 @@ import { v } from "convex/values"
 import { action } from "./_generated/server"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { generateText } from "ai"
+import { consumeActionUsage } from "./usage_error"
 
 const SEARCH_MODEL = "gemini-2.5-flash-lite" // Fast, cheap, good at retrieval
 const TRANSLATE_MODEL = "gemini-2.5-flash-lite" // Simple translation doesn't need heavy model
@@ -311,7 +312,8 @@ export const findJapaneseTitle = action({
     title: v.string(),
     authors: v.optional(v.array(v.string())),
   },
-  handler: async (_, { title, authors }) => {
+  handler: async (ctx, { title, authors }) => {
+    await consumeActionUsage(ctx, "llm")
     console.log("[ai_metadata.findJapaneseTitle] searching:", { title, authors })
     return searchJapaneseTitle(title, authors)
   },
@@ -325,7 +327,8 @@ export const findJapaneseDescription = action({
     japaneseTitle: v.string(),
     romajiTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, romajiTitle }) => {
+  handler: async (ctx, { japaneseTitle, romajiTitle }) => {
+    await consumeActionUsage(ctx, "llm")
     console.log("[ai_metadata.findJapaneseDescription] searching:", { japaneseTitle, romajiTitle })
     return searchJapaneseDescription(japaneseTitle, romajiTitle)
   },
@@ -338,7 +341,8 @@ export const findAuthorJapaneseName = action({
   args: {
     englishName: v.string(),
   },
-  handler: async (_, { englishName }) => {
+  handler: async (ctx, { englishName }) => {
+    await consumeActionUsage(ctx, "llm")
     console.log("[ai_metadata.findAuthorJapaneseName] searching:", englishName)
     return searchAuthorJapaneseName(englishName)
   },
@@ -353,7 +357,8 @@ export const findChineseTitle = action({
     japaneseTitle: v.string(),
     englishTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, englishTitle }) => {
+  handler: async (ctx, { japaneseTitle, englishTitle }) => {
+    await consumeActionUsage(ctx, "llm")
     const t = timer("findChineseTitle")
     console.log("[ai_metadata.findChineseTitle]", { japaneseTitle, englishTitle })
 
@@ -383,7 +388,8 @@ export const findChineseDescription = action({
     japaneseTitle: v.string(),
     englishTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, englishTitle }) => {
+  handler: async (ctx, { japaneseTitle, englishTitle }) => {
+    await consumeActionUsage(ctx, "llm")
     const t = timer("findChineseDescription")
     console.log("[ai_metadata.findChineseDescription]", { japaneseTitle, englishTitle })
 
