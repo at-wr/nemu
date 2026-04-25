@@ -7,10 +7,10 @@ import type { WorkerRequest, WorkerResponse, OcrDetectionWithText } from './ocr.
 import { getCachedOcrPageV3, setCachedOcrPageV3, type OcrPageCacheKeyV3 } from './ocr-page-cache'
 import { tokenize } from './ichiran-service'
 import { convertIchiranToGrammarTokens } from './grammar-analysis'
-import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
 import { jlDebugLog } from './debug'
 import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
+import { convexRef, isAuthenticatedRef } from '@/sync/services'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -23,14 +23,6 @@ interface NormalizeResult {
   properNouns: string[]
 }
 
-let convexHttp: ConvexHttpClient | null = null
-function getConvexHttp(): ConvexHttpClient | null {
-  const url = import.meta.env.VITE_CONVEX_URL as string | undefined
-  if (!url) return null
-  if (!convexHttp) convexHttp = new ConvexHttpClient(url)
-  return convexHttp
-}
-
 const normalizeCache = new Map<string, NormalizeResult>()
 let didWarnConvexMissing = false
 
@@ -40,12 +32,15 @@ async function normalizeText(text: string): Promise<NormalizeResult> {
   const cached = normalizeCache.get(clean)
   if (cached) return cached
 
-  const client = getConvexHttp()
+  const client = convexRef.current
   if (!client) {
     if (!didWarnConvexMissing) {
       didWarnConvexMissing = true
-      console.warn('[JapaneseLearning] normalization disabled: missing VITE_CONVEX_URL')
+      console.warn('[JapaneseLearning] normalization disabled: Convex client is not ready')
     }
+    return { normalized: clean, properNouns: [] }
+  }
+  if (!isAuthenticatedRef.current) {
     return { normalized: clean, properNouns: [] }
   }
 
